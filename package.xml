@@ -2,7 +2,7 @@
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
   <name>PanelWB</name>
   <description>Electrical control panel enclosure design workbench — Rittal-style parametric enclosures (AX wall-mount, VX25 floor-standing skeleton), DIN rails, cable ducts and component layout.</description>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <date>2026-08-24</date>
   <maintainer email="eierajat.roy@gmail.com">mz</maintainer>
   <license file="LICENSE">LGPL-2.1-or-later</license>

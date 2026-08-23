@@ -308,7 +308,26 @@ def t_drawings():
 
 
 check("BOM / thermal / fill reports", t_reports)
+def t_power():
+    from freecad.panelwb.enclosure import make_enclosure
+    from freecad.panelwb import interior, power
+    doc = App.newDocument("TPow")
+    e = make_enclosure(doc)
+    e.Preset = "VX25 800x2000x600"
+    doc.recompute()
+    plate = interior.make_mounting_plate(doc, e)
+    doc.recompute()
+    bar = power.make_earth_bar(doc, plate)
+    zone = power.make_busbar_zone(doc, plate)
+    doc.recompute()
+    assert bar.Shape.isValid()
+    assert zone.Shape.isValid()
+    assert bar.Shape.BoundBox.XLength > 500  # auto length follows plate
+    App.closeDocument("TPow")
+
+
 check("TechDraw pages", t_drawings)
+check("PE bar + busbar zone", t_power)
 check("bayed multi-bay", t_bays)
 check("door swing", t_door_swing)
 check("door styles + IP rule", t_door_styles)

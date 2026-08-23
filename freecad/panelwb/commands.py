@@ -202,6 +202,34 @@ class AddChassisRailCommand(_AddInteriorCommand):
     FACTORY = "make_chassis_rail"
 
 
+class AddEarthBarCommand(_AddInteriorCommand):
+    MENU = "Add PE/N bar"
+    TIP = "Earth or neutral bar on the mounting plate"
+    ICON = "Bus"
+    FACTORY = None
+
+    def Activated(self):
+        from freecad.panelwb import interior, power
+        doc = App.ActiveDocument
+        plate = interior.find_plate(doc, _selected_of("PanelPlate"))
+        power.make_earth_bar(doc, plate)
+        doc.recompute()
+
+
+class AddBusbarZoneCommand(_AddInteriorCommand):
+    MENU = "Add busbar zone"
+    TIP = "Reserved space for a RiLine-style busbar system"
+    ICON = "Bus"
+    FACTORY = None
+
+    def Activated(self):
+        from freecad.panelwb import interior, power
+        doc = App.ActiveDocument
+        plate = interior.find_plate(doc, _selected_of("PanelPlate"))
+        power.make_busbar_zone(doc, plate)
+        doc.recompute()
+
+
 class AddComponentCommand(_Command):
     MENU = "Add component…"
     TIP = "Pick a device from the library and drop it on the " \
@@ -307,6 +335,8 @@ Gui.addCommand("PanelWB_GenerateDrawings", GenerateDrawingsCommand())
 Gui.addCommand("PanelWB_GenerateBOM", GenerateBOMCommand())
 Gui.addCommand("PanelWB_ThermalReport", ThermalReportCommand())
 Gui.addCommand("PanelWB_FillReport", FillReportCommand())
+Gui.addCommand("PanelWB_AddEarthBar", AddEarthBarCommand())
+Gui.addCommand("PanelWB_AddBusbarZone", AddBusbarZoneCommand())
 Gui.addCommand("PanelWB_AddCutout", AddCutoutCommand())
 Gui.addCommand("PanelWB_AddComponent", AddComponentCommand())
 Gui.addCommand("PanelWB_AddMountingPlate", AddMountingPlateCommand())
@@ -337,6 +367,8 @@ toolbar_interior = [
     "PanelWB_AddChassisRail",
     "PanelWB_AddComponent",
     "PanelWB_AddCutout",
+    "PanelWB_AddEarthBar",
+    "PanelWB_AddBusbarZone",
 ]
 toolbar_outputs = [
     "PanelWB_GenerateBOM",
