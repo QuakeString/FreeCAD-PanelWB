@@ -202,6 +202,32 @@ class AddChassisRailCommand(_AddInteriorCommand):
     FACTORY = "make_chassis_rail"
 
 
+class AddComponentCommand(_Command):
+    MENU = "Add component…"
+    TIP = "Pick a device from the library and drop it on the " \
+          "selected rail or plate"
+    ICON = "Component"
+
+    def IsActive(self):
+        return App.ActiveDocument is not None
+
+    def Activated(self):
+        from freecad.panelwb.ui import show_component_picker
+        doc = App.ActiveDocument
+        rail = _selected_of("PanelDinRail")
+        plate = None
+        if rail is None:
+            from freecad.panelwb.interior import find_plate
+            plate = find_plate(doc, _selected_of("PanelPlate"))
+            rails = [o for o in doc.Objects
+                     if getattr(getattr(o, "Proxy", None), "Type",
+                                "").startswith("PanelDinRail")]
+            if len(rails) == 1:
+                rail = rails[0]
+        self._dlg = show_component_picker(doc, rail=rail, plate=plate)
+
+
+Gui.addCommand("PanelWB_AddComponent", AddComponentCommand())
 Gui.addCommand("PanelWB_AddMountingPlate", AddMountingPlateCommand())
 Gui.addCommand("PanelWB_AddDinRail", AddDinRailCommand())
 Gui.addCommand("PanelWB_AddDuct", AddDuctCommand())
@@ -228,5 +254,6 @@ toolbar_interior = [
     "PanelWB_AddDinRail",
     "PanelWB_AddDuct",
     "PanelWB_AddChassisRail",
+    "PanelWB_AddComponent",
 ]
 command_names = toolbar_panel + toolbar_interior

@@ -135,3 +135,74 @@ def show_enclosure_dialog(obj):
     if Gui.Control.activeDialog():
         Gui.Control.closeDialog()
     Gui.Control.showDialog(EnclosureTaskPanel(obj))
+
+
+class ComponentPicker(QtWidgets.QDialog):
+    """Modeless library browser: pick a device, click Add, repeat."""
+
+    def __init__(self, doc, rail=None, plate=None, parent=None):
+        super().__init__(parent)
+        self.doc = doc
+        self.rail = rail
+        self.plate = plate
+        self.setWindowTitle("Add component")
+        self.resize(380, 480)
+        lay = QtWidgets.QVBoxLayout(self)
+
+        self.search = QtWidgets.QLineEdit()
+        self.search.setPlaceholderText("Filter…")
+        lay.addWidget(self.search)
+
+        self.listw = QtWidgets.QListWidget()
+        lay.addWidget(self.listw)
+
+        target = "rail: %s" % rail.Label if rail else (
+            "plate: %s" % plate.Label if plate else "no target selected")
+        lay.addWidget(QtWidgets.QLabel("Placing on %s" % target))
+
+        btns = QtWidgets.QHBoxLayout()
+        self.add_btn = QtWidgets.QPushButton("Add")
+        close_btn = QtWidgets.QPushButton("Close")
+        btns.addWidget(self.add_btn)
+        btns.addWidget(close_btn)
+        lay.addLayout(btns)
+
+        from freecad.panelwb.components import load_library
+        self.lib = load_library()
+        self._fill("")
+        self.search.textChanged.connect(self._fill)
+        self.add_btn.clicked.connect(self._add)
+        self.listw.itemDoubleClicked.connect(lambda *_: self._add())
+        close_btn.clicked.connect(self.close)
+
+    def _fill(self, text):
+        self.listw.clear()
+        text = text.lower()
+        for lib_id, meta in sorted(self.lib.items(),
+                                   key=lambda kv: (kv[1]["category"],
+                                                   kv[1]["label"])):
+            line = "%s — %s (%s, %g mm)" % (
+                meta["category"], meta["label"], meta["mount"],
+                meta["width_mm"])
+            if text and text not in line.lower():
+                continue
+            item = QtWidgets.QListWidgetItem(line)
+            item.setData(32, lib_id)
+            self.listw.addItem(item)
+
+    def _add(self):
+        item = self.listw.currentItem()
+        if not item:
+            return
+        from freecad.panelwb.components import make_component
+        make_component(self.doc, item.data(32),
+                       rail=self.rail, plate=self.plate)
+        self.doc.recompute()
+
+
+def show_component_picker(doc, rail=None, plate=None):
+    dlg = ComponentPicker(doc, rail, plate,
+                          Gui.getMainWindow() if hasattr(Gui, "getMainWindow")
+                          else None)
+    dlg.show()
+    return dlg

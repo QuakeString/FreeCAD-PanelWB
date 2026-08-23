@@ -163,8 +163,52 @@ def t_interior():
     App.closeDocument("TInt")
 
 
+# --------------------------------------------------------------- components
+def t_components():
+    from freecad.panelwb.enclosure import make_enclosure
+    from freecad.panelwb import interior, components
+    doc = App.newDocument("TComp")
+    e = make_enclosure(doc)
+    e.Preset = "AX 600x760x350"
+    doc.recompute()
+    plate = interior.make_mounting_plate(doc, e)
+    doc.recompute()
+    rail = interior.make_din_rail(doc, plate)
+    rail.PositionZ = 500.0
+    doc.recompute()
+
+    lib = components.load_library()
+    assert len(lib) >= 20
+    ids = ["mcb_3p", "contactor_s00", "psu_24v_5a", "plc_compact",
+           "router_cell"] + ["terminal_2_5"] * 10
+    for lib_id in ids:
+        components.make_component(doc, lib_id, rail=rail)
+    doc.recompute()
+
+    comps = components.components_on_rail(rail)
+    assert len(comps) == 15
+    # no overlaps
+    spans = sorted((c.OffsetMM.Value, c.OffsetMM.Value + c.WidthMM.Value)
+                   for c in comps)
+    for (a0, a1), (b0, b1) in zip(spans, spans[1:]):
+        assert a1 <= b0 + 0.01, "overlap %s %s" % ((a0, a1), (b0, b1))
+    used, length, fill = components.rail_fill(rail)
+    assert 0 < fill < 1
+    for c in comps:
+        assert c.Shape.isValid()
+    # plate-mount device
+    vfd = components.make_component(doc, "vfd_2k2", plate=plate)
+    vfd.PositionX, vfd.PositionZ = 350.0, 350.0
+    doc.recompute()
+    assert vfd.Shape.isValid()
+    # devices stand proud of the plate towards the door
+    assert vfd.Shape.BoundBox.YMin < plate.Shape.BoundBox.YMin
+    App.closeDocument("TComp")
+
+
 check("enclosure families", t_families)
 check("interior plate/rail/duct", t_interior)
+check("component library + rail placement", t_components)
 check("bayed multi-bay", t_bays)
 check("door swing", t_door_swing)
 check("door styles + IP rule", t_door_styles)
