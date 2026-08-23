@@ -206,9 +206,38 @@ def t_components():
     App.closeDocument("TComp")
 
 
+# ------------------------------------------------------------- door devices
+def t_door_devices():
+    from freecad.panelwb.enclosure import make_enclosure
+    from freecad.panelwb import cutouts
+    doc = App.newDocument("TDev")
+    e = make_enclosure(doc)
+    e.Preset = "VX SE 800x2000x600"
+    doc.recompute()
+    n0 = len(e.Shape.Solids)
+    cutouts.add_cutout(e, "EStop22", 400, 1500)
+    cutouts.add_cutout(e, "PushButton22", 150, 1500)
+    cutouts.add_cutout(e, "PilotLamp22", 250, 1500)
+    cutouts.add_cutout(e, "HMI_7in", 400, 1100)
+    cutouts.add_cutout(e, "GlandM25", 80, 60)
+    cutouts.add_cutout(e, "GlandM25", 140, 60)
+    doc.recompute()
+    assert e.Shape.isValid()
+    assert len(e.Shape.Solids) > n0  # bezels/mushroom appeared
+    bom = dict(cutouts.device_bom_entries(e))
+    assert bom.get("Cable gland M25") == 2
+    assert bom.get("Emergency stop Ø22.5", bom.get("Emergency stop Ø22.5")) == 1
+    # devices must swing with the door
+    e.FrontDoorAngle = 90.0
+    doc.recompute()
+    assert e.Shape.isValid()
+    App.closeDocument("TDev")
+
+
 check("enclosure families", t_families)
 check("interior plate/rail/duct", t_interior)
 check("component library + rail placement", t_components)
+check("door devices + glands", t_door_devices)
 check("bayed multi-bay", t_bays)
 check("door swing", t_door_swing)
 check("door styles + IP rule", t_door_styles)

@@ -443,18 +443,20 @@ class Enclosure:
         return frame
 
     def _door_leaf(self, obj, lx, lw, y_door, z0, h, face, outward):
-        """One door leaf incl. style cutouts + handle, still closed."""
+        """One door leaf incl. style + device cutouts. Returns
+        (leaf, extras) with extras = panes/bezels that swing along."""
         leaf = Part.makeBox(lw, DOOR_T, h, Vector(lx, y_door, z0))
+        extras = []
 
         if face == "front" and obj.DoorStyle == "Glazed":
             m = min(60.0, lw / 4.0)
             win = Part.makeBox(lw - 2 * m, DOOR_T + 2, h * 0.5,
                                Vector(lx + m, y_door - 1, z0 + h * 0.35))
             leaf = leaf.cut(win)
-            pane = Part.makeBox(lw - 2 * m, 1.0, h * 0.5,
-                                Vector(lx + m, y_door + 0.5, z0 + h * 0.35))
+            extras.append(Part.makeBox(
+                lw - 2 * m, 1.0, h * 0.5,
+                Vector(lx + m, y_door + 0.5, z0 + h * 0.35)))
         elif face == "front" and obj.DoorStyle == "Vented":
-            pane = None
             slot_w = lw * 0.5
             for i in range(6):
                 slot = Part.makeBox(slot_w, DOOR_T + 2, 8.0,
@@ -462,18 +464,42 @@ class Enclosure:
                                            y_door - 1,
                                            z0 + h * 0.15 + i * 22.0))
                 leaf = leaf.cut(slot)
-        else:
-            pane = None
 
         cface = "FrontDoor" if face == "front" else "BackDoor"
+        y_out = y_door if outward < 0 else y_door + DOOR_T
         for spec in obj.Cutouts:
             cut = parse_cutout(spec)
             if cut.get("face") != cface:
                 continue
-            tool = self._face_cutout_solid(cut, lx, z0,
+            local = dict(cut)
+            tool = self._face_cutout_solid(local, lx, z0,
                                            y_door - 1, y_door + DOOR_T + 1)
             leaf = leaf.cut(tool)
-        return leaf, pane
+            extras += self._device_visual(local, lx, z0, y_out, outward)
+        return leaf, extras
+
+    def _device_visual(self, cut, lx, z0, y_out, outward):
+        """Visual body for a dev= cutout, proud of the door face."""
+        dev = cut.get("dev", "")
+        if not dev:
+            return []
+        cx = lx + cut.get("u", 0.0)
+        cz = z0 + cut.get("v", 0.0)
+        n = Vector(0, outward, 0)
+        if dev == "estop":
+            base = Part.makeCylinder(30.0, 4.0, Vector(cx, y_out, cz), n)
+            mushroom = Part.makeCylinder(
+                20.0, 14.0, Vector(cx, y_out + 4.0 * outward, cz), n)
+            return [base, mushroom]
+        if dev in ("button", "lamp"):
+            return [Part.makeCylinder(15.0, 8.0, Vector(cx, y_out, cz), n)]
+        if dev in ("meter", "hmi"):
+            w = cut.get("w", 92.0) + 12.0
+            h = cut.get("h", 92.0) + 12.0
+            y0 = y_out if outward > 0 else y_out - 5.0
+            return [Part.makeBox(w, 5.0, h,
+                                 Vector(cx - w / 2.0, y0, cz - h / 2.0))]
+        return []  # glands render on the gland plate itself
 
     def _doors(self, obj, x0, w, h, z0, front_y, back_y):
         solids = []
@@ -484,27 +510,28 @@ class Enclosure:
             pieces = []  # (solid, hinge_x, sign)
             if double:
                 half = w / 2.0 - 1.0
-                l1, p1 = self._door_leaf(obj, x0, half, y_door, z0, h,
-                                         face, outward)
-                l2, p2 = self._door_leaf(obj, x0 + w / 2.0 + 1.0, half,
-                                         y_door, z0, h, face, outward)
+                l1, ex1 = self._door_leaf(obj, x0, half, y_door, z0, h,
+                                          face, outward)
+                l2, ex2 = self._door_leaf(obj, x0 + w / 2.0 + 1.0, half,
+                                          y_door, z0, h, face, outward)
                 h1 = self._handle(obj, x0 + w / 2.0 - 40.0, y_door,
                                   z0 + h / 2.0, outward)
                 h2 = self._handle(obj, x0 + w / 2.0 + 40.0, y_door,
                                   z0 + h / 2.0, outward)
-                pieces += [(sld, x0, -1) for sld in (l1, p1, h1) if sld]
-                pieces += [(sld, x0 + w, +1) for sld in (l2, p2, h2) if sld]
+                pieces += [(sld, x0, -1) for sld in [l1, h1] + ex1 if sld]
+                pieces += [(sld, x0 + w, +1) for sld in [l2, h2] + ex2
+                           if sld]
             else:
-                leaf, pane = self._door_leaf(obj, x0, w, y_door, z0, h,
-                                             face, outward)
+                leaf, extras = self._door_leaf(obj, x0, w, y_door, z0, h,
+                                               face, outward)
                 hinge_left = obj.DoorSwing == "HingeLeft"
                 hx = x0 + (0.0 if hinge_left else w)
                 sign = -1 if hinge_left else +1
                 handle = self._handle(
                     obj, x0 + (w - 60.0 if hinge_left else 60.0),
                     y_door, z0 + h / 2.0, outward)
-                pieces += [(sld, hx, sign) for sld in (leaf, pane, handle)
-                           if sld]
+                pieces += [(sld, hx, sign)
+                           for sld in [leaf, handle] + extras if sld]
 
             for solid, hx, sign in pieces:
                 if angle:

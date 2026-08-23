@@ -227,6 +227,20 @@ class AddComponentCommand(_Command):
         self._dlg = show_component_picker(doc, rail=rail, plate=plate)
 
 
+class AddCutoutCommand(_Command):
+    MENU = "Add device / cutout…"
+    TIP = "Punch a standard device cutout (buttons, HMI, glands)"
+    ICON = "Cutout"
+
+    def IsActive(self):
+        return selected_enclosure() is not None
+
+    def Activated(self):
+        from freecad.panelwb.ui import show_cutout_dialog
+        self._dlg = show_cutout_dialog(selected_enclosure())
+
+
+Gui.addCommand("PanelWB_AddCutout", AddCutoutCommand())
 Gui.addCommand("PanelWB_AddComponent", AddComponentCommand())
 Gui.addCommand("PanelWB_AddMountingPlate", AddMountingPlateCommand())
 Gui.addCommand("PanelWB_AddDinRail", AddDinRailCommand())
@@ -255,5 +269,6 @@ toolbar_interior = [
     "PanelWB_AddDuct",
     "PanelWB_AddChassisRail",
     "PanelWB_AddComponent",
+    "PanelWB_AddCutout",
 ]
 command_names = toolbar_panel + toolbar_interior

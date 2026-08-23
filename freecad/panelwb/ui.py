@@ -200,6 +200,68 @@ class ComponentPicker(QtWidgets.QDialog):
         self.doc.recompute()
 
 
+class CutoutDialog(QtWidgets.QDialog):
+    """Add standard device cutouts to an enclosure face."""
+
+    def __init__(self, enclosure, parent=None):
+        super().__init__(parent)
+        self.enc = enclosure
+        self.setWindowTitle("Add device / cutout")
+        form = QtWidgets.QFormLayout(self)
+
+        from freecad.panelwb.cutouts import DEVICE_PRESETS
+        self.preset = QtWidgets.QComboBox()
+        self.preset.addItems(list(DEVICE_PRESETS))
+        form.addRow("Device", self.preset)
+
+        from freecad.panelwb.enclosure import CUTOUT_FACES
+        self.face = QtWidgets.QComboBox()
+        self.face.addItems(list(CUTOUT_FACES))
+        form.addRow("Face", self.face)
+
+        self.u = QtWidgets.QDoubleSpinBox()
+        self.u.setRange(0, 4000)
+        self.u.setValue(100)
+        self.u.setSuffix(" mm")
+        form.addRow("From left (u)", self.u)
+
+        self.v = QtWidgets.QDoubleSpinBox()
+        self.v.setRange(0, 4000)
+        self.v.setValue(1200)
+        self.v.setSuffix(" mm")
+        form.addRow("From bottom (v)", self.v)
+
+        add_btn = QtWidgets.QPushButton("Add")
+        close_btn = QtWidgets.QPushButton("Close")
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(add_btn)
+        row.addWidget(close_btn)
+        form.addRow(row)
+
+        def sync_face(name):
+            self.face.setCurrentText(DEVICE_PRESETS[name][0])
+        self.preset.currentTextChanged.connect(sync_face)
+        sync_face(self.preset.currentText())
+
+        add_btn.clicked.connect(self._add)
+        close_btn.clicked.connect(self.close)
+
+    def _add(self):
+        from freecad.panelwb.cutouts import add_cutout
+        add_cutout(self.enc, self.preset.currentText(),
+                   self.u.value(), self.v.value(),
+                   face=self.face.currentText())
+        self.enc.Document.recompute()
+
+
+def show_cutout_dialog(enclosure):
+    dlg = CutoutDialog(enclosure,
+                       Gui.getMainWindow() if hasattr(Gui, "getMainWindow")
+                       else None)
+    dlg.show()
+    return dlg
+
+
 def show_component_picker(doc, rail=None, plate=None):
     dlg = ComponentPicker(doc, rail, plate,
                           Gui.getMainWindow() if hasattr(Gui, "getMainWindow")
