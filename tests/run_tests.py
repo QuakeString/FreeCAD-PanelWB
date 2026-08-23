@@ -282,7 +282,33 @@ check("enclosure families", t_families)
 check("interior plate/rail/duct", t_interior)
 check("component library + rail placement", t_components)
 check("door devices + glands", t_door_devices)
+def t_drawings():
+    from freecad.panelwb.enclosure import make_enclosure
+    from freecad.panelwb import interior, components, drawings
+    doc = App.newDocument("TDraw")
+    e = make_enclosure(doc)
+    e.Preset = "AX 600x760x350"
+    doc.recompute()
+    plate = interior.make_mounting_plate(doc, e)
+    doc.recompute()
+    rail = interior.make_din_rail(doc, plate)
+    doc.recompute()
+    components.make_component(doc, "plc_compact", rail=rail)
+    doc.recompute()
+    pages = drawings.make_drawings(doc)
+    assert len(pages) == 2
+    ga = doc.getObject("GA")
+    assert ga is not None and len(ga.Views) == 4
+    layout = doc.getObject("Layout")
+    assert layout is not None and len(layout.Views) >= 2
+    # re-run must replace, not duplicate
+    pages = drawings.make_drawings(doc)
+    assert len([o for o in doc.Objects if o.Name.startswith("GA_Front")]) == 1
+    App.closeDocument("TDraw")
+
+
 check("BOM / thermal / fill reports", t_reports)
+check("TechDraw pages", t_drawings)
 check("bayed multi-bay", t_bays)
 check("door swing", t_door_swing)
 check("door styles + IP rule", t_door_styles)

@@ -291,6 +291,19 @@ class FillReportCommand(_ReportCommand):
         self._notify("Fill report", text or "Nothing to report.")
 
 
+class GenerateDrawingsCommand(_ReportCommand):
+    MENU = "Generate drawings"
+    TIP = "TechDraw GA + plate layout pages"
+    ICON = "Drawing"
+
+    def Activated(self):
+        from freecad.panelwb.drawings import make_drawings
+        pages = make_drawings(App.ActiveDocument)
+        self._notify("Drawings", "Created pages: "
+                     + ", ".join(p.Name for p in pages))
+
+
+Gui.addCommand("PanelWB_GenerateDrawings", GenerateDrawingsCommand())
 Gui.addCommand("PanelWB_GenerateBOM", GenerateBOMCommand())
 Gui.addCommand("PanelWB_ThermalReport", ThermalReportCommand())
 Gui.addCommand("PanelWB_FillReport", FillReportCommand())
@@ -327,6 +340,7 @@ toolbar_interior = [
 ]
 toolbar_outputs = [
     "PanelWB_GenerateBOM",
+    "PanelWB_GenerateDrawings",
     "PanelWB_ThermalReport",
     "PanelWB_FillReport",
 ]
