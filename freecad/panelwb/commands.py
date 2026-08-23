@@ -240,6 +240,60 @@ class AddCutoutCommand(_Command):
         self._dlg = show_cutout_dialog(selected_enclosure())
 
 
+class _ReportCommand(_Command):
+    ICON = "Report"
+
+    def IsActive(self):
+        return App.ActiveDocument is not None
+
+    def _notify(self, title, text):
+        try:
+            from PySide import QtWidgets
+            QtWidgets.QMessageBox.information(Gui.getMainWindow(), title,
+                                              text)
+        except Exception:
+            App.Console.PrintMessage("%s\n%s\n" % (title, text))
+
+
+class GenerateBOMCommand(_ReportCommand):
+    MENU = "Generate BOM"
+    TIP = "Bill of materials -> spreadsheet + CSV"
+
+    def Activated(self):
+        from freecad.panelwb.reports import make_bom
+        rows, path = make_bom(App.ActiveDocument)
+        self._notify("BOM", "%d line items.\nCSV: %s" % (len(rows), path))
+
+
+class ThermalReportCommand(_ReportCommand):
+    MENU = "Thermal report"
+    TIP = "IEC 60890-style temperature rise estimate"
+
+    def Activated(self):
+        from freecad.panelwb.reports import thermal_report
+        r = thermal_report(App.ActiveDocument)
+        self._notify("Thermal", "P=%.0f W, Ae=%.2f m2, dT=%.1f K "
+                     "-> %.1f C\n%s" % (r["heat_w"], r["ae_m2"],
+                                         r["delta_t"], r["internal_c"],
+                                         r["advice"]))
+
+
+class FillReportCommand(_ReportCommand):
+    MENU = "Fill / collision report"
+    TIP = "Rail and duct fill, clearance collisions"
+
+    def Activated(self):
+        from freecad.panelwb.reports import fill_report
+        entries, warnings = fill_report(App.ActiveDocument)
+        text = "\n".join("%s: %s" % e for e in entries)
+        if warnings:
+            text += "\n\nWARNINGS:\n" + "\n".join(warnings)
+        self._notify("Fill report", text or "Nothing to report.")
+
+
+Gui.addCommand("PanelWB_GenerateBOM", GenerateBOMCommand())
+Gui.addCommand("PanelWB_ThermalReport", ThermalReportCommand())
+Gui.addCommand("PanelWB_FillReport", FillReportCommand())
 Gui.addCommand("PanelWB_AddCutout", AddCutoutCommand())
 Gui.addCommand("PanelWB_AddComponent", AddComponentCommand())
 Gui.addCommand("PanelWB_AddMountingPlate", AddMountingPlateCommand())
@@ -271,4 +325,9 @@ toolbar_interior = [
     "PanelWB_AddComponent",
     "PanelWB_AddCutout",
 ]
-command_names = toolbar_panel + toolbar_interior
+toolbar_outputs = [
+    "PanelWB_GenerateBOM",
+    "PanelWB_ThermalReport",
+    "PanelWB_FillReport",
+]
+command_names = toolbar_panel + toolbar_interior + toolbar_outputs

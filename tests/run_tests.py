@@ -234,10 +234,55 @@ def t_door_devices():
     App.closeDocument("TDev")
 
 
+# ------------------------------------------------------------------ reports
+def t_reports():
+    from freecad.panelwb.enclosure import make_enclosure
+    from freecad.panelwb import interior, components, cutouts, reports
+    doc = App.newDocument("TRep")
+    e = make_enclosure(doc)
+    e.Preset = "VX SE 800x2000x600"
+    doc.recompute()
+    plate = interior.make_mounting_plate(doc, e)
+    doc.recompute()
+    rail = interior.make_din_rail(doc, plate)
+    rail.PositionZ = 1500.0
+    duct = interior.make_duct(doc, plate)
+    duct.WireFill = 60
+    doc.recompute()
+    for lib_id in ("mcb_3p", "psu_24v_10a", "plc_compact", "router_cell"):
+        components.make_component(doc, lib_id, rail=rail)
+    v1 = components.make_component(doc, "vfd_2k2", plate=plate)
+    v1.PositionX, v1.PositionZ = 100.0, 300.0
+    v2 = components.make_component(doc, "trafo_400va", plate=plate)
+    v2.PositionX, v2.PositionZ = 150.0, 350.0  # deliberate collision
+    cutouts.add_cutout(e, "EStop22", 400, 1500)
+    doc.recompute()
+
+    rows, path = reports.make_bom(doc)
+    assert os.path.exists(path)
+    descs = " | ".join(str(r[2]) for r in rows)
+    assert "PSU 24VDC 10A" in descs
+    assert "Emergency stop" in descs
+    assert doc.getObject("BOM") is not None
+
+    r = reports.thermal_report(doc)
+    assert 0 < r["delta_t"] < 100
+    assert r["heat_w"] > 100  # vfd + trafo dominate
+    assert "fan" in r["advice"] or "Passive" in r["advice"] \
+        or "cooling" in r["advice"]
+
+    entries, warnings = reports.fill_report(doc)
+    assert any("Rail" in k for k, _ in entries)
+    assert any("Duct" in w for w in warnings)      # 60% wire fill
+    assert any("Collision" in w for w in warnings)  # vfd vs trafo
+    App.closeDocument("TRep")
+
+
 check("enclosure families", t_families)
 check("interior plate/rail/duct", t_interior)
 check("component library + rail placement", t_components)
 check("door devices + glands", t_door_devices)
+check("BOM / thermal / fill reports", t_reports)
 check("bayed multi-bay", t_bays)
 check("door swing", t_door_swing)
 check("door styles + IP rule", t_door_styles)

@@ -16,6 +16,7 @@ class PanelWBWorkbench(Gui.Workbench):
         from freecad.panelwb import commands
         self.appendToolbar("Panel", commands.toolbar_panel)
         self.appendToolbar("Panel Interior", commands.toolbar_interior)
+        self.appendToolbar("Panel Outputs", commands.toolbar_outputs)
         self.appendMenu("&Panel", commands.command_names)
 
     def GetClassName(self):
