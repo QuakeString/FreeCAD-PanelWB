@@ -46,7 +46,7 @@ class _Command:
 class AddEnclosureCommand(_Command):
     MENU = "Add enclosure"
     TIP = "Create a parametric Rittal-style enclosure"
-    ICON = "Enclosure"
+    ICON = "AddEnclosure"
 
     def Activated(self):
         from freecad.panelwb.enclosure import make_enclosure
@@ -64,7 +64,7 @@ class AddEnclosureCommand(_Command):
 class EditEnclosureCommand(_Command):
     MENU = "Edit enclosure…"
     TIP = "Open the enclosure quick editor"
-    ICON = "Enclosure"
+    ICON = "EditEnclosure"
 
     def IsActive(self):
         return selected_enclosure() is not None
@@ -77,7 +77,7 @@ class EditEnclosureCommand(_Command):
 class ToggleFrontDoorCommand(_Command):
     MENU = "Open/close front door"
     TIP = "Toggle the front door swing"
-    ICON = "Door"
+    ICON = "DoorToggle"
 
     def IsActive(self):
         return selected_enclosure() is not None
@@ -89,7 +89,7 @@ class ToggleFrontDoorCommand(_Command):
 
 class OpenAllDoorsCommand(_Command):
     MENU = "Open all doors"
-    ICON = "Door"
+    ICON = "DoorsOpen"
 
     def IsActive(self):
         return selected_enclosure() is not None
@@ -101,7 +101,7 @@ class OpenAllDoorsCommand(_Command):
 
 class CloseAllDoorsCommand(_Command):
     MENU = "Close all doors"
-    ICON = "Door"
+    ICON = "DoorsClose"
 
     def IsActive(self):
         return selected_enclosure() is not None
@@ -114,7 +114,7 @@ class CloseAllDoorsCommand(_Command):
 class ViewServiceCommand(_Command):
     MENU = "Service view"
     TIP = "Doors open, side panels off"
-    ICON = "PanelWB"
+    ICON = "ViewService"
 
     def IsActive(self):
         return selected_enclosure() is not None
@@ -129,7 +129,7 @@ class ViewServiceCommand(_Command):
 class ViewClosedCommand(_Command):
     MENU = "Closed view"
     TIP = "Doors closed, all panels fitted"
-    ICON = "PanelWB"
+    ICON = "ViewClosed"
 
     def IsActive(self):
         return selected_enclosure() is not None
@@ -198,14 +198,14 @@ class AddDuctCommand(_AddInteriorCommand):
 class AddChassisRailCommand(_AddInteriorCommand):
     MENU = "Add chassis rail"
     TIP = "C-profile support rail for heavy gear"
-    ICON = "Rail"
+    ICON = "ChassisRail"
     FACTORY = "make_chassis_rail"
 
 
 class AddEarthBarCommand(_AddInteriorCommand):
     MENU = "Add PE/N bar"
     TIP = "Earth or neutral bar on the mounting plate"
-    ICON = "Bus"
+    ICON = "EarthBar"
     FACTORY = None
 
     def Activated(self):
@@ -296,6 +296,7 @@ class GenerateBOMCommand(_ReportCommand):
 class ThermalReportCommand(_ReportCommand):
     MENU = "Thermal report"
     TIP = "IEC 60890-style temperature rise estimate"
+    ICON = "Thermal"
 
     def Activated(self):
         from freecad.panelwb.reports import thermal_report
@@ -309,6 +310,7 @@ class ThermalReportCommand(_ReportCommand):
 class FillReportCommand(_ReportCommand):
     MENU = "Fill / collision report"
     TIP = "Rail and duct fill, clearance collisions"
+    ICON = "Fill"
 
     def Activated(self):
         from freecad.panelwb.reports import fill_report
