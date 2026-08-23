@@ -112,6 +112,14 @@ def _fillet_vertical(solid, radius):
         return solid
 
 
+def _fillet_all(solid, radius):
+    """Round every edge (sheet-metal folded look); best effort."""
+    try:
+        return solid.makeFillet(radius, solid.Edges)
+    except Exception:
+        return _fillet_vertical(solid, radius)
+
+
 def _chamfer_vertical(solid, size):
     edges = []
     for e in solid.Edges:
@@ -312,7 +320,7 @@ class Enclosure:
             parts.append((self._plinth(w, d, ph), BLACK))
 
         outer = Part.makeBox(w, d, h, Vector(0, 0, ph))
-        outer = _fillet_vertical(outer, 6.0)
+        outer = _fillet_all(outer, 5.0)
         inner = Part.makeBox(w - 2 * t, d - 2 * t, h - 2 * t,
                              Vector(t, t, ph + t))
         front = Part.makeBox(w - 2 * t, 2 * t, h - 2 * t,
@@ -502,7 +510,7 @@ class Enclosure:
         style + device cutouts. Returns (leaf, extras) where extras is
         a list of (solid, color) that swing with the leaf."""
         leaf = Part.makeBox(lw, DOOR_T, h, Vector(lx, y_door, z0))
-        leaf = _fillet_vertical(leaf, 8.0)
+        leaf = _fillet_all(leaf, 5.0)
         # pan recess from the inner side, leaving the outer skin
         m = 28.0
         if outward < 0:   # front door: outer face at y_door
@@ -593,9 +601,9 @@ class Enclosure:
                 l2, ex2 = self._door_leaf(obj, x0 + w / 2.0 + 1.0, half,
                                           y_door, z0, h, face, outward)
                 h1 = self._handle(obj, x0 + w / 2.0 - 45.0, y_door,
-                                  z0 + h / 2.0, outward)
+                                  z0 + h / 2.0, outward, z0, h)
                 h2 = self._handle(obj, x0 + w / 2.0 + 45.0, y_door,
-                                  z0 + h / 2.0, outward)
+                                  z0 + h / 2.0, outward, z0, h)
                 pieces += [(s, c, x0, -1) for s, c in [(l1, RAL7035)]
                            + ex1 + h1]
                 pieces += [(s, c, x0 + w, +1) for s, c in [(l2, RAL7035)]
@@ -608,7 +616,7 @@ class Enclosure:
                 sign = -1 if hinge_left else +1
                 handle = self._handle(
                     obj, x0 + (w - 65.0 if hinge_left else 65.0),
-                    y_door, z0 + h / 2.0, outward)
+                    y_door, z0 + h / 2.0, outward, z0, h)
                 pieces += [(s, c, hx, sign)
                            for s, c in [(leaf, RAL7035)] + extras + handle]
 
@@ -618,16 +626,33 @@ class Enclosure:
                                  Vector(0, 0, 1), sign * angle * -outward)
                 parts.append((solid, color))
 
+            # hinge barrels (fixed halves, on the body side of the gap)
+            if double:
+                hinge_xs = (x0 + 2.0, x0 + w - 2.0)
+            else:
+                hinge_xs = (x0 + 2.0 if obj.DoorSwing == "HingeLeft"
+                            else x0 + w - 2.0,)
+            zs = [z0 + h * 0.12, z0 + h * 0.88]
+            if h > 1200:
+                zs.append(z0 + h * 0.5)
+            hy = y + outward * (DOOR_GAP + DOOR_T / 2.0)
+            for xh in hinge_xs:
+                for zc in zs:
+                    parts.append((Part.makeCylinder(
+                        6.0, 64.0, Vector(xh, hy, zc - 32.0)), BLACK))
+
         build("front", front_y, -1, float(obj.FrontDoorAngle))
         if back_y is not None:
             build("back", back_y, +1, float(obj.BackDoorAngle))
 
-    def _handle(self, obj, hx, y_door, hz, outward):
-        """Realistic handle assembly: list of (solid, color)."""
+    def _handle(self, obj, hx, y_door, hz, outward, z0=None, h=None):
+        """Realistic handle assembly incl. 3-point locking:
+        list of (solid, color)."""
         lock = obj.LockType
         y_face = y_door + (DOOR_T if outward > 0 else 0)
         n = Vector(0, outward, 0)
         out = []
+        out += self._locking(hx, y_door, hz, outward, z0, h)
 
         if lock == "SwingHandleKeyBarrel":
             esc_h = 170.0
@@ -688,6 +713,30 @@ class Enclosure:
             out.append((bit, DEV_DARK))
         return out
 
+    def _locking(self, hx, y_door, hz, outward, z0, h):
+        """3-point locking on the inner door face: cam box at the
+        handle, vertical lock rods to top/bottom latch tongues."""
+        if z0 is None or h is None:
+            return []
+        inner_y = y_door + DOOR_T + 2.0 if outward < 0 else y_door - 2.0
+        rod_y = inner_y + 4.0 if outward < 0 else inner_y - 4.0
+        out = []
+        cam = Part.makeBox(
+            28.0, 10.0, 18.0,
+            Vector(hx - 14.0, inner_y if outward < 0 else inner_y - 10.0,
+                   hz - 9.0))
+        out.append((cam, ZINC))
+        if h > 700:
+            for za, zb in ((z0 + 28.0, hz - 12.0), (hz + 12.0, z0 + h - 28.0)):
+                if zb - za > 50.0:
+                    out.append((Part.makeCylinder(
+                        3.0, zb - za, Vector(hx, rod_y, za)), ZINC))
+            for ze in (z0 + 16.0, z0 + h - 40.0):
+                out.append((Part.makeBox(
+                    8.0, 6.0, 24.0,
+                    Vector(hx - 4.0, rod_y - 3.0, ze)), ZINC))
+        return out
+
 
 class ViewProviderEnclosure:
     def __init__(self, vobj):
@@ -745,7 +794,7 @@ def apply_solid_colors(obj):
             return
         faces = []
         for sol, col in zip(solids, colors):
-            faces += [col + (0.0,)] * len(sol.Faces)
+            faces += [col + (1.0,)] * len(sol.Faces)
         if len(faces) == len(obj.Shape.Faces):
             vobj.DiffuseColor = faces
     except Exception:
