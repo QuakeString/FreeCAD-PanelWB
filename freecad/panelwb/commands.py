@@ -141,6 +141,71 @@ class ViewClosedCommand(_Command):
         _set_doors(obj, 0.0)
 
 
+def _selected_of(prefix):
+    for o in Gui.Selection.getSelection():
+        if getattr(getattr(o, "Proxy", None), "Type", "").startswith(prefix):
+            return o
+    return None
+
+
+class AddMountingPlateCommand(_Command):
+    MENU = "Add mounting plate"
+    TIP = "Add an auto-sized mounting plate to the enclosure"
+    ICON = "Plate"
+
+    def IsActive(self):
+        return selected_enclosure() is not None
+
+    def Activated(self):
+        from freecad.panelwb import interior
+        enc = selected_enclosure()
+        interior.make_mounting_plate(enc.Document, enc)
+        enc.Document.recompute()
+
+
+class _AddInteriorCommand(_Command):
+    FACTORY = None
+
+    def IsActive(self):
+        doc = App.ActiveDocument
+        if not doc:
+            return False
+        from freecad.panelwb.interior import find_plate
+        return find_plate(doc, _selected_of("PanelPlate")) is not None
+
+    def Activated(self):
+        from freecad.panelwb import interior
+        doc = App.ActiveDocument
+        plate = interior.find_plate(doc, _selected_of("PanelPlate"))
+        getattr(interior, self.FACTORY)(doc, plate)
+        doc.recompute()
+
+
+class AddDinRailCommand(_AddInteriorCommand):
+    MENU = "Add DIN rail"
+    TIP = "TS35 rail on the mounting plate"
+    ICON = "Rail"
+    FACTORY = "make_din_rail"
+
+
+class AddDuctCommand(_AddInteriorCommand):
+    MENU = "Add cable duct"
+    TIP = "Wiring duct on the mounting plate"
+    ICON = "Duct"
+    FACTORY = "make_duct"
+
+
+class AddChassisRailCommand(_AddInteriorCommand):
+    MENU = "Add chassis rail"
+    TIP = "C-profile support rail for heavy gear"
+    ICON = "Rail"
+    FACTORY = "make_chassis_rail"
+
+
+Gui.addCommand("PanelWB_AddMountingPlate", AddMountingPlateCommand())
+Gui.addCommand("PanelWB_AddDinRail", AddDinRailCommand())
+Gui.addCommand("PanelWB_AddDuct", AddDuctCommand())
+Gui.addCommand("PanelWB_AddChassisRail", AddChassisRailCommand())
 Gui.addCommand("PanelWB_AddEnclosure", AddEnclosureCommand())
 Gui.addCommand("PanelWB_EditEnclosure", EditEnclosureCommand())
 Gui.addCommand("PanelWB_ToggleFrontDoor", ToggleFrontDoorCommand())
@@ -158,4 +223,10 @@ toolbar_panel = [
     "PanelWB_ViewService",
     "PanelWB_ViewClosed",
 ]
-command_names = list(toolbar_panel)
+toolbar_interior = [
+    "PanelWB_AddMountingPlate",
+    "PanelWB_AddDinRail",
+    "PanelWB_AddDuct",
+    "PanelWB_AddChassisRail",
+]
+command_names = toolbar_panel + toolbar_interior

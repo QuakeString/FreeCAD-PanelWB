@@ -128,7 +128,43 @@ def t_migration():
     App.closeDocument("TMig")
 
 
+# ----------------------------------------------------------------- interior
+def t_interior():
+    from freecad.panelwb.enclosure import make_enclosure
+    from freecad.panelwb import interior
+    doc = App.newDocument("TInt")
+    e = make_enclosure(doc)
+    e.MountingType = "Bayed"
+    e.Width, e.Height, e.Depth = 800, 2000, 600
+    doc.recompute()
+    plate = interior.make_mounting_plate(doc, e)
+    doc.recompute()
+    assert not e.MountingPlate  # built-in slab superseded
+    assert plate.Shape.isValid()
+    pw0 = plate.Shape.BoundBox.XLength
+
+    rail = interior.make_din_rail(doc, plate)
+    rail.PositionZ = 1500.0
+    duct = interior.make_duct(doc, plate)
+    duct.Orientation = "Vertical"
+    chassis = interior.make_chassis_rail(doc, plate)
+    doc.recompute()
+    for o in (rail, duct, chassis):
+        assert o.Shape.isValid(), o.Name
+    rl0 = rail.Shape.BoundBox.XLength
+
+    # resize the enclosure: plate and auto-length rail must follow
+    e.Width = 1000
+    doc.recompute()
+    assert plate.Shape.BoundBox.XLength > pw0 + 150
+    assert rail.Shape.BoundBox.XLength > rl0 + 150
+    # rail sits proud of the plate face (towards the door, -Y)
+    assert rail.Shape.BoundBox.YMin < plate.Shape.BoundBox.YMin
+    App.closeDocument("TInt")
+
+
 check("enclosure families", t_families)
+check("interior plate/rail/duct", t_interior)
 check("bayed multi-bay", t_bays)
 check("door swing", t_door_swing)
 check("door styles + IP rule", t_door_styles)
