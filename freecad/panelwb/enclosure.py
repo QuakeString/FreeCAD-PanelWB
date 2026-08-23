@@ -9,9 +9,12 @@ Four construction families:
 
 Height is the enclosure/frame height; the plinth adds below it.
 Doors carry a live OpenAngle so the cabinet can be "opened" with one click.
+
+Geometry carries per-solid colors (SolidColors property, applied by the
+view provider) so the model reads like a real cabinet: RAL 7035 body,
+black plinth/handles, zinc plate, colored operator devices.
 """
 
-import math
 import os
 
 import FreeCAD as App
@@ -35,7 +38,6 @@ LOCK_TYPES = [
 ]
 PLINTHS = ["None", "100mm", "200mm"]
 
-# Preset -> (family, W, H, D, plinth)
 PRESETS = {
     "Custom": None,
     "KX 200x300x120": ("SmallBox", 200, 300, 120, "None"),
@@ -50,18 +52,27 @@ PRESETS = {
 }
 
 PROFILE = 45.0        # VX25 frame section size
-DOOR_T = 2.0          # door sheet thickness
-DOOR_GAP = 3.0        # door offset in front of face
+DOOR_T = 18.0         # door depth (folded pan construction)
+DOOR_SKIN = 4.0       # outer skin the recess leaves standing
+DOOR_GAP = 4.0        # door offset in front of face
 PITCH_HOLE_D = 8.5    # VX25 system punching
 PLINTH_MM = {"None": 0.0, "100mm": 100.0, "200mm": 200.0}
+
+# palette (RGB 0..1)
+RAL7035 = (0.784, 0.800, 0.792)   # light grey body
+RAL7035_D = (0.706, 0.722, 0.714)  # slightly darker: frame, inner door
+BLACK = (0.110, 0.110, 0.118)      # plinth, handles
+ZINC = (0.718, 0.749, 0.769)       # mounting/gland plate
+GLASS = (0.588, 0.735, 0.828)
+DEV_RED = (0.769, 0.118, 0.118)
+DEV_YELLOW = (0.939, 0.788, 0.118)
+DEV_GREEN = (0.318, 0.639, 0.318)
+DEV_AMBER = (0.918, 0.639, 0.180)
+DEV_DARK = (0.149, 0.157, 0.176)
 
 FLOOR_ONLY_PROPS = ("Plinth",)
 BAYED_ONLY_PROPS = ("BayCount", "SkeletonPitch", "ShowPitchHoles")
 
-# Cutout spec strings look like:
-#   "face=FrontDoor;type=circle;u=100;v=400;d=22.3"
-#   "face=FrontDoor;type=rect;u=200;v=600;w=96;h=96"
-# u is measured from the left edge of that face, v from its bottom.
 CUTOUT_FACES = ("FrontDoor", "BackDoor", "Roof", "GlandPlate")
 
 
@@ -85,9 +96,40 @@ def parse_cutout(spec):
     return out
 
 
+def _fillet_vertical(solid, radius):
+    """Fillet the vertical edges of a box-like solid; best effort."""
+    edges = []
+    for e in solid.Edges:
+        try:
+            t = e.tangentAt(e.FirstParameter)
+        except Exception:
+            continue
+        if abs(t.z) > 0.99:
+            edges.append(e)
+    try:
+        return solid.makeFillet(radius, edges)
+    except Exception:
+        return solid
+
+
+def _chamfer_vertical(solid, size):
+    edges = []
+    for e in solid.Edges:
+        try:
+            t = e.tangentAt(e.FirstParameter)
+        except Exception:
+            continue
+        if abs(t.z) > 0.99:
+            edges.append(e)
+    try:
+        return solid.makeChamfer(size, edges)
+    except Exception:
+        return solid
+
+
 class Enclosure:
     def __init__(self, obj):
-        self.Type = "PanelEnclosure:2"
+        self.Type = "PanelEnclosure:3"
         obj.Proxy = self
         self._add_properties(obj)
         self._update_modes(obj)
@@ -185,6 +227,9 @@ class Enclosure:
         if add("App::PropertyStringList", "Warnings", "Rules",
                "Advisory rule warnings (read-only)"):
             obj.setEditorMode("Warnings", 1)
+        if add("App::PropertyStringList", "SolidColors", "Rules",
+               "Per-solid display colors (computed)"):
+            obj.setEditorMode("SolidColors", 2)
 
     # -- persistence --------------------------------------------------------
     def dumps(self):
@@ -219,7 +264,7 @@ class Enclosure:
                 obj.Plinth = plinth
 
     def onDocumentRestored(self, obj):
-        self._add_properties(obj)  # forward migration
+        self._add_properties(obj)
         self._update_modes(obj)
 
     # -- rule checks --------------------------------------------------------
@@ -244,29 +289,30 @@ class Enclosure:
 
     # -- geometry -----------------------------------------------------------
     def execute(self, obj):
+        parts = []  # list of (solid, color)
         fam = obj.MountingType
         if fam == "Bayed":
-            solids = self._build_bayed(obj)
-        elif fam == "FreeStanding":
-            solids = self._build_monobody(obj, floor=True)
-        else:  # SmallBox, WallMount
-            solids = self._build_monobody(obj, floor=False)
-        obj.Shape = Part.makeCompound(solids)
+            self._build_bayed(obj, parts)
+        else:
+            self._build_monobody(obj, parts,
+                                 floor=(fam == "FreeStanding"))
+        obj.SolidColors = ["%.3f,%.3f,%.3f" % c for _s, c in parts]
+        obj.Shape = Part.makeCompound([s for s, _c in parts])
         obj.Warnings = self._check_rules(obj)
 
     # .. mono-body families (KX / AX / VX SE) ...............................
-    def _build_monobody(self, obj, floor):
+    def _build_monobody(self, obj, parts, floor):
         w = obj.Width.Value
         h = obj.Height.Value
         d = obj.Depth.Value
         t = obj.WallThickness.Value
         ph = PLINTH_MM[obj.Plinth] if floor else 0.0
 
-        solids = []
         if ph:
-            solids.append(self._plinth(w, d, ph))
+            parts.append((self._plinth(w, d, ph), BLACK))
 
         outer = Part.makeBox(w, d, h, Vector(0, 0, ph))
+        outer = _fillet_vertical(outer, 6.0)
         inner = Part.makeBox(w - 2 * t, d - 2 * t, h - 2 * t,
                              Vector(t, t, ph + t))
         front = Part.makeBox(w - 2 * t, 2 * t, h - 2 * t,
@@ -274,24 +320,24 @@ class Enclosure:
         body = outer.cut(inner).cut(front)
         body = self._roof_cutouts(obj, body, x0=0, w=w, d=d, ztop=ph + h)
         body, gland = self._floor_gland(obj, body, x0=0, w=w, d=d, zfloor=ph)
-        solids.append(body)
-        solids += gland
+        parts.append((body, RAL7035))
+        parts += gland
 
-        solids += self._doors(obj, x0=0.0, w=w, h=h, z0=ph,
-                              front_y=0.0,
-                              back_y=d if obj.RearStyle == "Door" else None)
+        self._doors(obj, parts, x0=0.0, w=w, h=h, z0=ph, front_y=0.0,
+                    back_y=d if obj.RearStyle == "Door" else None)
         if obj.InnerDoor:
-            solids.append(self._inner_door(obj, 0.0, w, h, ph, t))
+            parts.append((self._inner_door(obj, 0.0, w, h, ph, t),
+                          RAL7035_D))
 
         if obj.MountingPlate:
             margin = 25.0
             py = d - t - obj.PlateSetback.Value
-            solids.append(Part.makeBox(w - 2 * margin, 2.0, h - 2 * margin,
-                                       Vector(margin, py, ph + margin)))
-        return solids
+            parts.append((Part.makeBox(w - 2 * margin, 2.0, h - 2 * margin,
+                                       Vector(margin, py, ph + margin)),
+                          ZINC))
 
     # .. bayed skeleton family (VX25) .......................................
-    def _build_bayed(self, obj):
+    def _build_bayed(self, obj, parts):
         w = obj.Width.Value
         h = obj.Height.Value
         d = obj.Depth.Value
@@ -300,65 +346,73 @@ class Enclosure:
         bays = max(int(obj.BayCount), 1)
         total_w = w * bays
 
-        solids = []
         if ph:
-            solids.append(self._plinth(total_w, d, ph))
+            parts.append((self._plinth(total_w, d, ph), BLACK))
 
         for b in range(bays):
             x0 = b * w
-            posts = []
             for px, py in ((x0, 0), (x0 + w - s, 0),
                            (x0, d - s), (x0 + w - s, d - s)):
-                posts.append(Part.makeBox(s, s, h, Vector(px, py, ph)))
-            if obj.ShowPitchHoles:
-                posts = [self._drill_pitch_holes(obj, p, s, ph, h)
-                         for p in posts]
-            solids += posts
+                post = Part.makeBox(s, s, h, Vector(px, py, ph))
+                post = _chamfer_vertical(post, 6.0)
+                if obj.ShowPitchHoles:
+                    post = self._drill_pitch_holes(obj, post, s, ph, h)
+                parts.append((post, RAL7035_D))
             for z in (ph, ph + h - s):
                 for y in (0, d - s):
-                    solids.append(Part.makeBox(w - 2 * s, s, s,
-                                               Vector(x0 + s, y, z)))
+                    parts.append((Part.makeBox(w - 2 * s, s, s,
+                                               Vector(x0 + s, y, z)),
+                                  RAL7035_D))
                 for x in (x0, x0 + w - s):
-                    solids.append(Part.makeBox(s, d - 2 * s, s,
-                                               Vector(x, s, z)))
+                    parts.append((Part.makeBox(s, d - 2 * s, s,
+                                               Vector(x, s, z)),
+                                  RAL7035_D))
 
-            solids += self._doors(
-                obj, x0=x0, w=w, h=h, z0=ph, front_y=0.0,
-                back_y=d if obj.RearStyle == "Door" else None)
+            self._doors(obj, parts, x0=x0, w=w, h=h, z0=ph, front_y=0.0,
+                        back_y=d if obj.RearStyle == "Door" else None)
 
         roof = Part.makeBox(total_w, d, 2.0, Vector(0, 0, ph + h))
         roof = self._roof_cutouts(obj, roof, 0, total_w, d, ph + h + 2.0)
-        solids.append(roof)
+        parts.append((roof, RAL7035))
 
         floor_sheet = Part.makeBox(total_w - 2 * s, d - 2 * s, 2.0,
                                    Vector(s, s, ph))
         floor_sheet, gland = self._floor_gland(
             obj, floor_sheet, x0=s, w=total_w - 2 * s, d=d, zfloor=ph)
-        solids.append(floor_sheet)
-        solids += gland
+        parts.append((floor_sheet, ZINC))
+        parts += gland
 
         if obj.SidePanels:
-            solids.append(Part.makeBox(1.5, d, h, Vector(-1.5, 0, ph)))
-            solids.append(Part.makeBox(1.5, d, h, Vector(total_w, 0, ph)))
+            parts.append((Part.makeBox(1.5, d, h, Vector(-1.5, 0, ph)),
+                          RAL7035))
+            parts.append((Part.makeBox(1.5, d, h, Vector(total_w, 0, ph)),
+                          RAL7035))
         if obj.RearStyle == "Panel":
-            solids.append(Part.makeBox(total_w, 1.5, h, Vector(0, d, ph)))
+            parts.append((Part.makeBox(total_w, 1.5, h, Vector(0, d, ph)),
+                          RAL7035))
 
         if obj.MountingPlate:
             margin = 50.0
             py = d - s - obj.PlateSetback.Value
-            solids.append(Part.makeBox(total_w - 2 * margin, 3.0,
+            parts.append((Part.makeBox(total_w - 2 * margin, 3.0,
                                        h - 2 * margin,
-                                       Vector(margin, py, ph + margin)))
+                                       Vector(margin, py, ph + margin)),
+                          ZINC))
         if obj.InnerDoor:
             t = obj.WallThickness.Value
-            solids.append(self._inner_door(obj, 0.0, w, h, ph, t))
-        return solids
+            parts.append((self._inner_door(obj, 0.0, w, h, ph, t),
+                          RAL7035_D))
 
     # .. shared pieces ......................................................
     def _plinth(self, w, d, ph):
         p_outer = Part.makeBox(w, d, ph)
         p_inner = Part.makeBox(w - 6, d - 6, ph + 2, Vector(3, 3, -1))
-        return p_outer.cut(p_inner)
+        plinth = p_outer.cut(p_inner)
+        # trim grooves front + back
+        for z in (ph * 0.35, ph * 0.7):
+            groove = Part.makeBox(w - 20, d + 4, 3.0, Vector(10, -2, z))
+            plinth = plinth.cut(groove)
+        return plinth
 
     def _drill_pitch_holes(self, obj, post, s, z0, h):
         pitch = max(obj.SkeletonPitch.Value, 5.0)
@@ -370,11 +424,13 @@ class Enclosure:
             cyls.append(Part.makeCylinder(
                 r, s + 2.0, Vector(bb.XMin + s / 2.0, bb.YMin - 1.0, z),
                 Vector(0, 1, 0)))
+            cyls.append(Part.makeCylinder(
+                r, s + 2.0, Vector(bb.XMin - 1.0, bb.YMin + s / 2.0, z),
+                Vector(1, 0, 0)))
             z += pitch
         return post.cut(Part.makeCompound(cyls)) if cyls else post
 
     def _face_cutout_solid(self, cut, x0, z0, y_from, y_to):
-        """Solid to subtract from a front/back vertical sheet."""
         if cut.get("type") == "circle":
             r = cut.get("d", 22.3) / 2.0
             return Part.makeCylinder(
@@ -404,7 +460,6 @@ class Enclosure:
         return solid
 
     def _floor_gland(self, obj, floor_solid, x0, w, d, zfloor):
-        """Cut gland opening(s) in the floor and return cover plate solids."""
         if not obj.GlandPlateFitted:
             return floor_solid, []
         gw = max(w * 0.6, 60.0)
@@ -424,7 +479,7 @@ class Enclosure:
                 r, 10.0,
                 Vector(gx - 10.0 + cut["u"], gy - 10.0 + cut["v"],
                        zfloor - 6.0)))
-        return floor_solid, [plate]
+        return floor_solid, [(plate, ZINC)]
 
     def _inner_door(self, obj, x0, w, h, z0, t):
         border = 40.0
@@ -443,19 +498,30 @@ class Enclosure:
         return frame
 
     def _door_leaf(self, obj, lx, lw, y_door, z0, h, face, outward):
-        """One door leaf incl. style + device cutouts. Returns
-        (leaf, extras) with extras = panes/bezels that swing along."""
+        """One door leaf: folded-pan look, rounded vertical edges,
+        style + device cutouts. Returns (leaf, extras) where extras is
+        a list of (solid, color) that swing with the leaf."""
         leaf = Part.makeBox(lw, DOOR_T, h, Vector(lx, y_door, z0))
+        leaf = _fillet_vertical(leaf, 8.0)
+        # pan recess from the inner side, leaving the outer skin
+        m = 28.0
+        if outward < 0:   # front door: outer face at y_door
+            ry0 = y_door + DOOR_SKIN
+        else:             # back door: outer face at y_door + DOOR_T
+            ry0 = y_door - 1.0
+        recess = Part.makeBox(lw - 2 * m, DOOR_T - DOOR_SKIN + 1.0,
+                              h - 2 * m, Vector(lx + m, ry0, z0 + m))
+        leaf = leaf.cut(recess)
         extras = []
 
         if face == "front" and obj.DoorStyle == "Glazed":
-            m = min(60.0, lw / 4.0)
-            win = Part.makeBox(lw - 2 * m, DOOR_T + 2, h * 0.5,
-                               Vector(lx + m, y_door - 1, z0 + h * 0.35))
+            gm = max(min(60.0, lw / 4.0), m + 4.0)
+            win = Part.makeBox(lw - 2 * gm, DOOR_T + 2, h * 0.5,
+                               Vector(lx + gm, y_door - 1, z0 + h * 0.35))
             leaf = leaf.cut(win)
-            extras.append(Part.makeBox(
-                lw - 2 * m, 1.0, h * 0.5,
-                Vector(lx + m, y_door + 0.5, z0 + h * 0.35)))
+            extras.append((Part.makeBox(
+                lw - 2 * gm, 3.0, h * 0.5,
+                Vector(lx + gm, y_door + 0.5, z0 + h * 0.35)), GLASS))
         elif face == "front" and obj.DoorStyle == "Vented":
             slot_w = lw * 0.5
             for i in range(6):
@@ -471,56 +537,69 @@ class Enclosure:
             cut = parse_cutout(spec)
             if cut.get("face") != cface:
                 continue
-            local = dict(cut)
-            tool = self._face_cutout_solid(local, lx, z0,
+            tool = self._face_cutout_solid(cut, lx, z0,
                                            y_door - 1, y_door + DOOR_T + 1)
             leaf = leaf.cut(tool)
-            extras += self._device_visual(local, lx, z0, y_out, outward)
+            extras += self._device_visual(cut, lx, z0, y_out, outward)
         return leaf, extras
 
     def _device_visual(self, cut, lx, z0, y_out, outward):
-        """Visual body for a dev= cutout, proud of the door face."""
         dev = cut.get("dev", "")
         if not dev:
             return []
         cx = lx + cut.get("u", 0.0)
         cz = z0 + cut.get("v", 0.0)
         n = Vector(0, outward, 0)
+        p = Vector(cx, y_out, cz)
         if dev == "estop":
-            base = Part.makeCylinder(30.0, 4.0, Vector(cx, y_out, cz), n)
+            base = Part.makeCylinder(30.0, 5.0, p, n)
             mushroom = Part.makeCylinder(
-                20.0, 14.0, Vector(cx, y_out + 4.0 * outward, cz), n)
-            return [base, mushroom]
-        if dev in ("button", "lamp"):
-            return [Part.makeCylinder(15.0, 8.0, Vector(cx, y_out, cz), n)]
+                20.0, 16.0, Vector(cx, y_out + 5.0 * outward, cz), n)
+            return [(base, DEV_YELLOW), (mushroom, DEV_RED)]
+        if dev == "button":
+            bezel = Part.makeCylinder(15.0, 5.0, p, n)
+            cap = Part.makeCylinder(
+                11.0, 9.0, Vector(cx, y_out + 5.0 * outward, cz), n)
+            return [(bezel, DEV_DARK), (cap, DEV_GREEN)]
+        if dev == "lamp":
+            bezel = Part.makeCylinder(15.0, 5.0, p, n)
+            lens = Part.makeCylinder(
+                11.0, 8.0, Vector(cx, y_out + 5.0 * outward, cz), n)
+            return [(bezel, DEV_DARK), (lens, DEV_AMBER)]
         if dev in ("meter", "hmi"):
-            w = cut.get("w", 92.0) + 12.0
-            h = cut.get("h", 92.0) + 12.0
-            y0 = y_out if outward > 0 else y_out - 5.0
-            return [Part.makeBox(w, 5.0, h,
-                                 Vector(cx - w / 2.0, y0, cz - h / 2.0))]
-        return []  # glands render on the gland plate itself
+            w = cut.get("w", 92.0) + 14.0
+            h = cut.get("h", 92.0) + 14.0
+            y0 = y_out if outward > 0 else y_out - 6.0
+            frame = Part.makeBox(w, 6.0, h,
+                                 Vector(cx - w / 2.0, y0, cz - h / 2.0))
+            screen = Part.makeBox(
+                w - 14.0, 2.0, h - 14.0,
+                Vector(cx - w / 2.0 + 7.0,
+                       y0 + (6.0 if outward > 0 else -2.0),
+                       cz - h / 2.0 + 7.0))
+            return [(frame, DEV_DARK), (screen, GLASS)]
+        return []
 
-    def _doors(self, obj, x0, w, h, z0, front_y, back_y):
-        solids = []
+    def _doors(self, obj, parts, x0, w, h, z0, front_y, back_y):
         double = obj.DoorConfig.startswith("Double") or w > 800.0
 
         def build(face, y, outward, angle):
             y_door = y + outward * DOOR_GAP - (DOOR_T if outward < 0 else 0)
-            pieces = []  # (solid, hinge_x, sign)
+            pieces = []  # (solid, color, hinge_x, sign)
             if double:
                 half = w / 2.0 - 1.0
                 l1, ex1 = self._door_leaf(obj, x0, half, y_door, z0, h,
                                           face, outward)
                 l2, ex2 = self._door_leaf(obj, x0 + w / 2.0 + 1.0, half,
                                           y_door, z0, h, face, outward)
-                h1 = self._handle(obj, x0 + w / 2.0 - 40.0, y_door,
+                h1 = self._handle(obj, x0 + w / 2.0 - 45.0, y_door,
                                   z0 + h / 2.0, outward)
-                h2 = self._handle(obj, x0 + w / 2.0 + 40.0, y_door,
+                h2 = self._handle(obj, x0 + w / 2.0 + 45.0, y_door,
                                   z0 + h / 2.0, outward)
-                pieces += [(sld, x0, -1) for sld in [l1, h1] + ex1 if sld]
-                pieces += [(sld, x0 + w, +1) for sld in [l2, h2] + ex2
-                           if sld]
+                pieces += [(s, c, x0, -1) for s, c in [(l1, RAL7035)]
+                           + ex1 + h1]
+                pieces += [(s, c, x0 + w, +1) for s, c in [(l2, RAL7035)]
+                           + ex2 + h2]
             else:
                 leaf, extras = self._door_leaf(obj, x0, w, y_door, z0, h,
                                                face, outward)
@@ -528,39 +607,86 @@ class Enclosure:
                 hx = x0 + (0.0 if hinge_left else w)
                 sign = -1 if hinge_left else +1
                 handle = self._handle(
-                    obj, x0 + (w - 60.0 if hinge_left else 60.0),
+                    obj, x0 + (w - 65.0 if hinge_left else 65.0),
                     y_door, z0 + h / 2.0, outward)
-                pieces += [(sld, hx, sign)
-                           for sld in [leaf, handle] + extras if sld]
+                pieces += [(s, c, hx, sign)
+                           for s, c in [(leaf, RAL7035)] + extras + handle]
 
-            for solid, hx, sign in pieces:
+            for solid, color, hx, sign in pieces:
                 if angle:
-                    # outward flips the swing direction for the back face
                     solid.rotate(Vector(hx, y + outward * DOOR_GAP, 0),
                                  Vector(0, 0, 1), sign * angle * -outward)
-                solids.append(solid)
+                parts.append((solid, color))
 
         build("front", front_y, -1, float(obj.FrontDoorAngle))
         if back_y is not None:
             build("back", back_y, +1, float(obj.BackDoorAngle))
-        return solids
 
     def _handle(self, obj, hx, y_door, hz, outward):
+        """Realistic handle assembly: list of (solid, color)."""
         lock = obj.LockType
         y_face = y_door + (DOOR_T if outward > 0 else 0)
-        if lock.startswith("QuarterTurn"):
-            return Part.makeCylinder(11.0, 6.0, Vector(hx, y_face, hz),
-                                     Vector(0, outward, 0))
-        if lock == "WingHandle":
-            size = (24.0, 6.0, 90.0)
-        elif lock == "SwingHandleKeyBarrel":
-            size = (30.0, 8.0, 150.0)
-        else:  # Padlockable
-            size = (20.0, 10.0, 40.0)
-        sx, sy, sz = size
-        y0 = y_face if outward > 0 else y_face - sy
-        return Part.makeBox(sx, sy, sz,
-                            Vector(hx - sx / 2.0, y0, hz - sz / 2.0))
+        n = Vector(0, outward, 0)
+        out = []
+
+        if lock == "SwingHandleKeyBarrel":
+            esc_h = 170.0
+            esc = Part.makeBox(
+                34.0, 6.0, esc_h,
+                Vector(hx - 17.0,
+                       y_face if outward > 0 else y_face - 6.0,
+                       hz - esc_h / 2.0))
+            esc = _fillet_vertical(esc, 8.0)
+            out.append((esc, BLACK))
+            lever = Part.makeBox(
+                22.0, 14.0, 120.0,
+                Vector(hx - 11.0,
+                       y_face + 6.0 * outward if outward > 0
+                       else y_face - 20.0,
+                       hz - 66.0))
+            lever = _fillet_vertical(lever, 6.0)
+            out.append((lever, BLACK))
+            barrel = Part.makeCylinder(
+                7.0, 3.0, Vector(hx, y_face + (20.0 if outward > 0
+                                               else -20.0) * 1.0, hz + 66.0),
+                n)
+            out.append((barrel, ZINC))
+        elif lock == "WingHandle":
+            knob = Part.makeCylinder(16.0, 9.0, Vector(hx, y_face, hz), n)
+            out.append((knob, BLACK))
+            wing = Part.makeBox(
+                86.0, 9.0, 18.0,
+                Vector(hx - 43.0,
+                       y_face + 9.0 * outward if outward > 0
+                       else y_face - 18.0,
+                       hz - 9.0))
+            out.append((wing, BLACK))
+        elif lock == "Padlockable":
+            base = Part.makeBox(
+                26.0, 6.0, 44.0,
+                Vector(hx - 13.0,
+                       y_face if outward > 0 else y_face - 6.0,
+                       hz - 22.0))
+            out.append((base, BLACK))
+            for dz in (-12.0, 12.0):
+                lug = Part.makeBox(
+                    5.0, 14.0, 16.0,
+                    Vector(hx - 2.5,
+                           y_face + 6.0 * outward if outward > 0
+                           else y_face - 20.0,
+                           hz + dz - 8.0))
+                out.append((lug, ZINC))
+        else:  # quarter-turn inserts
+            esc = Part.makeCylinder(15.0, 4.0, Vector(hx, y_face, hz), n)
+            out.append((esc, BLACK))
+            insert = Part.makeCylinder(
+                8.0, 8.0, Vector(hx, y_face + 4.0 * outward, hz), n)
+            out.append((insert, ZINC))
+            bit_r = 3.0 if "3mm" in lock else 5.0
+            bit = Part.makeCylinder(
+                bit_r, 4.0, Vector(hx, y_face + 12.0 * outward, hz), n)
+            out.append((bit, DEV_DARK))
+        return out
 
 
 class ViewProviderEnclosure:
@@ -572,6 +698,10 @@ class ViewProviderEnclosure:
 
     def attach(self, vobj):
         self.vobj = vobj
+
+    def updateData(self, obj, prop):
+        if prop == "Shape":
+            apply_solid_colors(obj)
 
     def setupContextMenu(self, vobj, menu):
         try:
@@ -602,6 +732,24 @@ class ViewProviderEnclosure:
 
     def loads(self, state):
         return None
+
+
+def apply_solid_colors(obj):
+    """Expand per-solid colors to per-face DiffuseColor."""
+    try:
+        vobj = obj.ViewObject
+        solids = obj.Shape.Solids
+        colors = [tuple(float(x) for x in c.split(","))
+                  for c in obj.SolidColors]
+        if not solids or len(colors) != len(solids):
+            return
+        faces = []
+        for sol, col in zip(solids, colors):
+            faces += [col + (0.0,)] * len(sol.Faces)
+        if len(faces) == len(obj.Shape.Faces):
+            vobj.DiffuseColor = faces
+    except Exception:
+        pass
 
 
 def _toggle(obj, prop):

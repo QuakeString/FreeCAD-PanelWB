@@ -14,7 +14,8 @@ def make_earth_bar(doc, plate, name="PEBar"):
     EarthBar(obj)
     obj.Plate = plate
     if App.GuiUp:
-        SimpleViewProvider(obj.ViewObject, "Rail")
+        SimpleViewProvider(obj.ViewObject, "EarthBar",
+                           (0.722, 0.451, 0.200))  # copper
     return obj
 
 
@@ -67,7 +68,7 @@ def make_busbar_zone(doc, plate, name="BusbarZone"):
     BusbarZone(obj)
     obj.Plate = plate
     if App.GuiUp:
-        SimpleViewProvider(obj.ViewObject, "Bus")
+        SimpleViewProvider(obj.ViewObject, "Bus", (0.940, 0.790, 0.120))
         try:
             obj.ViewObject.Transparency = 60
         except Exception:

@@ -17,13 +17,58 @@ from FreeCAD import Vector
 ICONDIR = os.path.join(os.path.dirname(__file__), "resources", "icons")
 
 RAIL_TYPES = ["TS35x7.5", "TS35x15"]
+
+# display colors
+COL_ZINC = (0.718, 0.749, 0.769)
+COL_RAIL = (0.780, 0.800, 0.820)
+COL_DUCT = (0.478, 0.522, 0.573)
+COL_DUCT_LID = (0.560, 0.600, 0.650)
+
+
+def ts35_rail(rx, yf, rz_center, length, depth, slots=True, sheet=1.0):
+    """True EN 60715 top-hat profile, extruded along X.
+
+    rx        world X of rail start
+    yf        world Y of the plate face the flanges sit on
+    rz_center world Z of the rail centerline
+    """
+    z0 = rz_center - 17.5  # rail is 35 high
+    di = depth - sheet     # inner (back) surface of the crown
+
+    def pt(z, y):
+        return Vector(rx, yf - y, z0 + z)
+
+    # polygon walks the 1 mm sheet of the hat profile (z, depth-off-plate)
+    outline = [
+        pt(0.0, 0.0), pt(0.0, sheet), pt(4.0, sheet), pt(4.0, depth),
+        pt(31.0, depth), pt(31.0, sheet), pt(35.0, sheet), pt(35.0, 0.0),
+        pt(30.0, 0.0), pt(30.0, di), pt(5.0, di), pt(5.0, 0.0),
+        pt(0.0, 0.0),
+    ]
+    wire = Part.makePolygon(outline)
+    face = Part.Face(wire)
+    rail = face.extrude(Vector(length, 0, 0))
+
+    if slots and length > 50.0:
+        tools = []
+        x = 12.5
+        while x < length - 12.5:
+            # 6.2 x 18 oblong in the crown, punched through
+            tools.append(Part.makeBox(
+                12.0, depth + 2.0, 6.2,
+                Vector(rx + x - 6.0, yf - depth - 1.0,
+                       rz_center - 3.1)))
+            x += 25.0
+        if tools:
+            rail = rail.cut(Part.makeCompound(tools))
+    return rail
 DUCT_SIZES = ["25x40", "40x40", "60x40", "60x60", "80x60", "100x60", "120x80"]
 DUCT_ORIENTATIONS = ["Horizontal", "Vertical"]
 
 
-def _viewprovider(obj, icon):
+def _viewprovider(obj, icon, color=None):
     if App.GuiUp:
-        SimpleViewProvider(obj.ViewObject, icon)
+        SimpleViewProvider(obj.ViewObject, icon, color)
 
 
 def _proxy_type(o):
@@ -45,7 +90,7 @@ def make_mounting_plate(doc, enclosure, name="MountingPlate"):
     obj.Enclosure = enclosure
     if hasattr(enclosure, "MountingPlate"):
         enclosure.MountingPlate = False  # supersede the built-in slab
-    _viewprovider(obj, "Plate")
+    _viewprovider(obj, "Plate", COL_ZINC)
     return obj
 
 
@@ -114,7 +159,7 @@ def make_din_rail(doc, plate, name="DinRail"):
     obj = doc.addObject("Part::FeaturePython", name)
     DinRail(obj)
     obj.Plate = plate
-    _viewprovider(obj, "Rail")
+    _viewprovider(obj, "Rail", COL_RAIL)
     return obj
 
 
@@ -133,6 +178,8 @@ class DinRail:
                         "Rail centerline height on plate").PositionZ = 200.0
         obj.addProperty("App::PropertyLength", "Length", "Rail",
                         "0 = auto (plate width minus margins)").Length = 0.0
+        obj.addProperty("App::PropertyBool", "MountingSlots", "Rail",
+                        "Punch the 25mm slot pattern").MountingSlots = True
 
     def dumps(self):
         return None
@@ -148,20 +195,16 @@ class DinRail:
         return plate_frame(obj.Plate)[3] - 2 * obj.PositionX.Value
 
     def execute(self, obj):
-        if obj.Plate is None:
-            obj.Shape = Part.makeBox(400, 7.5, 35)
-            return
-        x0, yf, z0, _, _ = plate_frame(obj.Plate)
         depth = 7.5 if obj.RailType == "TS35x7.5" else 15.0
         length = self.rail_length(obj)
-        rx = x0 + obj.PositionX.Value
-        rz = z0 + obj.PositionZ.Value - 17.5
-        y = yf - depth
-        base = Part.makeBox(length, depth - 1.0, 27.0,
-                            Vector(rx, y + 1.0, rz + 4.0))
-        lip_t = Part.makeBox(length, depth, 4.0, Vector(rx, y, rz + 31.0))
-        lip_b = Part.makeBox(length, depth, 4.0, Vector(rx, y, rz))
-        obj.Shape = Part.makeCompound([base, lip_t, lip_b])
+        if obj.Plate is None:
+            rx, yf, rz = 0.0, 0.0, 17.5
+        else:
+            x0, yf, z0, _, _ = plate_frame(obj.Plate)
+            rx = x0 + obj.PositionX.Value
+            rz = z0 + obj.PositionZ.Value
+        obj.Shape = ts35_rail(rx, yf, rz, length, depth,
+                              slots=obj.MountingSlots)
 
 
 # ------------------------------------------------------------------------ duct
@@ -169,7 +212,7 @@ def make_duct(doc, plate, name="Duct"):
     obj = doc.addObject("Part::FeaturePython", name)
     Duct(obj)
     obj.Plate = plate
-    _viewprovider(obj, "Duct")
+    _viewprovider(obj, "Duct", COL_DUCT)
     return obj
 
 
@@ -229,7 +272,23 @@ class Duct:
             outer = Part.makeBox(wide, deep, length, Vector(dx, y, dz))
             inner = Part.makeBox(wide - 4, deep, length - 4,
                                  Vector(dx + 2, y - 2, dz + 2))
-        obj.Shape = outer.cut(inner)
+        duct = outer.cut(inner)
+        # wiring-duct finger slots along both side walls
+        fingers = []
+        run = 8.0
+        while run < length - 8.0:
+            if obj.Orientation == "Horizontal":
+                fingers.append(Part.makeBox(
+                    5.0, deep * 0.7 + 1.0, wide + 2.0,
+                    Vector(dx + run, y - 1.0, dz - 1.0)))
+            else:
+                fingers.append(Part.makeBox(
+                    wide + 2.0, deep * 0.7 + 1.0, 5.0,
+                    Vector(dx - 1.0, y - 1.0, dz + run)))
+            run += 12.5
+        if fingers:
+            duct = duct.cut(Part.makeCompound(fingers))
+        obj.Shape = duct
 
 
 # ---------------------------------------------------------------- chassis rail
@@ -237,7 +296,7 @@ def make_chassis_rail(doc, plate, name="ChassisRail"):
     obj = doc.addObject("Part::FeaturePython", name)
     ChassisRail(obj)
     obj.Plate = plate
-    _viewprovider(obj, "Rail")
+    _viewprovider(obj, "Rail", COL_ZINC)
     return obj
 
 
@@ -278,9 +337,14 @@ class ChassisRail:
 
 # ---------------------------------------------------------------- view provider
 class SimpleViewProvider:
-    def __init__(self, vobj, icon):
+    def __init__(self, vobj, icon, color=None):
         vobj.Proxy = self
         self.icon = icon
+        if color is not None:
+            try:
+                vobj.ShapeColor = color
+            except Exception:
+                pass
 
     def getIcon(self):
         return os.path.join(ICONDIR, "%s.svg" % getattr(self, "icon",

@@ -18,6 +18,20 @@ from FreeCAD import Vector
 
 from freecad.panelwb.interior import SimpleViewProvider, plate_frame
 
+CATEGORY_COLORS = {
+    "breaker": (0.910, 0.910, 0.890),
+    "contactor": (0.230, 0.240, 0.270),
+    "relay": (0.900, 0.550, 0.150),
+    "psu": (0.740, 0.760, 0.780),
+    "plc": (0.840, 0.850, 0.820),
+    "network": (0.290, 0.430, 0.620),
+    "terminal": (0.550, 0.570, 0.620),
+    "protection": (0.700, 0.250, 0.250),
+    "metering": (0.180, 0.190, 0.210),
+    "drive": (0.350, 0.370, 0.400),
+    "power": (0.480, 0.400, 0.320),
+}
+
 LIBRARY_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "parts", "library.json"))
 
@@ -69,7 +83,9 @@ def make_component(doc, lib_id, rail=None, plate=None, name=None):
     elif plate is not None:
         obj.Plate = plate
     if App.GuiUp:
-        SimpleViewProvider(obj.ViewObject, "Component")
+        SimpleViewProvider(obj.ViewObject, "Component",
+                           CATEGORY_COLORS.get(meta.get("category"),
+                                               (0.7, 0.7, 0.7)))
     return obj
 
 
